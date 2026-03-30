@@ -1,61 +1,45 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
-
-let players = {};
+// In-memory storage (Use a database like MongoDB for permanent storage)
+let users = {}; 
+let activeRooms = {}; 
 
 io.on('connection', (socket) => {
-    socket.on('join', (data) => {
-        players[socket.id] = {
-            x: 100, y: 100, angle: 0, 
-            color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-            hp: 100, name: data.name, id: socket.id
-        };
-        io.emit('updatePlayers', players);
+    // Account System
+    socket.on('login', (username) => {
+        if (!users[username]) users[username] = { levels: [] };
+        socket.username = username;
+        socket.emit('userData', users[username]);
     });
 
-    socket.on('move', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
-            players[socket.id].angle = data.angle;
-            socket.broadcast.emit('updatePlayers', players);
+    // Host Level (6-digit code)
+    socket.on('hostLevel', (levelData) => {
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        activeRooms[code] = { data: levelData, players: {} };
+        socket.emit('levelCode', code);
+    });
+
+    socket.on('joinRoom', (code) => {
+        if (activeRooms[code]) {
+            socket.join(code);
+            socket.emit('loadLevel', activeRooms[code].data);
         }
     });
 
-    socket.on('shoot', (bullet) => {
-        io.emit('newBullet', bullet);
-    });
-
-    socket.on('hit', (id) => {
-        if (players[id]) {
-            players[id].hp -= 10;
-            if (players[id].hp <= 0) players[id].hp = 0;
-            io.emit('updatePlayers', players);
+    socket.on('saveLevel', (level) => {
+        if (socket.username) {
+            const userLevels = users[socket.username].levels;
+            const index = userLevels.findIndex(l => l.name === level.name);
+            if (index > -1) userLevels[index] = level;
+            else userLevels.push(level);
         }
-    });
-
-    socket.on('revive', () => {
-        if (players[socket.id]) {
-            players[socket.id].hp = 100;
-            players[socket.id].x = 100;
-            players[socket.id].y = 100;
-            io.emit('updatePlayers', players);
-        }
-    });
-
-    socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('updatePlayers', players);
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.use(express.static('public'));
+server.listen(process.env.PORT || 3000);
