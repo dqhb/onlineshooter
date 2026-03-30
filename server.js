@@ -1,45 +1,28 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// In-memory storage (Use a database like MongoDB for permanent storage)
-let users = {}; 
-let activeRooms = {}; 
+let active_rooms = {}; 
 
 io.on('connection', (socket) => {
-    // Account System
-    socket.on('login', (username) => {
-        if (!users[username]) users[username] = { levels: [] };
-        socket.username = username;
-        socket.emit('userData', users[username]);
-    });
-
-    // Host Level (6-digit code)
-    socket.on('hostLevel', (levelData) => {
+    socket.on('host_level', (level_data) => {
         const code = Math.floor(100000 + Math.random() * 900000).toString();
-        activeRooms[code] = { data: levelData, players: {} };
-        socket.emit('levelCode', code);
+        active_rooms[code] = level_data;
+        socket.emit('level_code', code);
     });
 
-    socket.on('joinRoom', (code) => {
-        if (activeRooms[code]) {
-            socket.join(code);
-            socket.emit('loadLevel', activeRooms[code].data);
-        }
-    });
-
-    socket.on('saveLevel', (level) => {
-        if (socket.username) {
-            const userLevels = users[socket.username].levels;
-            const index = userLevels.findIndex(l => l.name === level.name);
-            if (index > -1) userLevels[index] = level;
-            else userLevels.push(level);
+    socket.on('join_room', (code) => {
+        if (active_rooms[code]) {
+            socket.emit('load_level', active_rooms[code]);
+        } else {
+            socket.emit('error_msg', 'level not found');
         }
     });
 });
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 server.listen(process.env.PORT || 3000);
